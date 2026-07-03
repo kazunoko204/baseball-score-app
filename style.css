@@ -1,0 +1,247 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Hiragino Sans", "Meiryo", sans-serif;
+  background: #f2f4f7;
+  color: #222;
+}
+
+#app {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 12px 12px 60px;
+}
+
+#appHeader h1 {
+  font-size: 1.3em;
+  margin: 8px 0 16px;
+  text-align: center;
+}
+
+.view.hidden {
+  display: none;
+}
+
+h2 {
+  font-size: 1.1em;
+  margin: 20px 0 8px;
+}
+
+h3 {
+  font-size: 1em;
+  margin: 20px 0 8px;
+}
+
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.btn {
+  flex: 1 1 auto;
+  min-height: 48px;
+  padding: 10px 14px;
+  font-size: 1em;
+  border: none;
+  border-radius: 10px;
+  background: #e0e3e8;
+  color: #222;
+  cursor: pointer;
+}
+
+.btn:active {
+  filter: brightness(0.9);
+}
+
+.btn-primary {
+  background: #2e7d32;
+  color: #fff;
+}
+
+.btn-warn {
+  background: #f9a825;
+  color: #fff;
+}
+
+.btn-danger {
+  background: #c62828;
+  color: #fff;
+}
+
+.btn-back {
+  background: none;
+  min-height: auto;
+  padding: 6px 0;
+  color: #555;
+}
+
+.btn-large {
+  width: 100%;
+  min-height: 56px;
+  font-size: 1.1em;
+  margin-top: 12px;
+}
+
+.btn-small {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 6px 10px;
+  font-size: 0.9em;
+}
+
+.btn-block {
+  display: block;
+  width: 100%;
+  margin: 6px 0;
+}
+
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.inline-form input,
+.inline-form select {
+  flex: 1 1 auto;
+  min-height: 44px;
+  padding: 8px 10px;
+  font-size: 1em;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+}
+
+.list-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fff;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.list-row-main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.checkbox-row {
+  cursor: pointer;
+}
+
+.checkbox-row input {
+  width: 20px;
+  height: 20px;
+}
+
+.empty {
+  color: #888;
+  font-style: italic;
+}
+
+.game-date {
+  font-weight: bold;
+}
+
+.current-batter-box {
+  background: #fff;
+  border-radius: 10px;
+  padding: 12px;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.current-batter-box .label {
+  font-size: 0.8em;
+  color: #888;
+}
+
+.current-batter-name {
+  font-size: 1.4em;
+  font-weight: bold;
+}
+
+.outcome-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.outcome {
+  min-height: 56px;
+  font-size: 1.05em;
+  font-weight: bold;
+}
+
+.outcome-hit {
+  background: #66bb6a;
+  color: #fff;
+}
+
+.outcome-hr {
+  background: #ef6c00;
+  color: #fff;
+}
+
+.outcome-walk {
+  background: #42a5f5;
+  color: #fff;
+}
+
+.outcome-out {
+  background: #90a4ae;
+  color: #fff;
+}
+
+.current-batter-row {
+  outline: 3px solid #2e7d32;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal-overlay.hidden {
+  display: none;
+}
+
+.modal-box {
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+  padding: 16px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.modal-box h3 {
+  margin-top: 0;
+}
+
+select.editTypeSelect {
+  min-height: 36px;
+}
+
+input.editRbiInput {
+  width: 3.5em;
+  min-height: 36px;
+}
