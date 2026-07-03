@@ -1,3 +1,23 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+import {
+  getFirestore, collection, doc, addDoc, updateDoc, deleteDoc,
+  onSnapshot, runTransaction
+} from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyD0jfaU5TygflvFeYz6Y7j1beVnSV-AF8E",
+  authDomain: "baseball-score-app-698e7.firebaseapp.com",
+  projectId: "baseball-score-app-698e7",
+  storageBucket: "baseball-score-app-698e7.firebasestorage.app",
+  messagingSenderId: "903549341305",
+  appId: "1:903549341305:web:f76b0171f3b555143a0ea8"
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
+const playersCol = collection(db, "players");
+const gamesCol = collection(db, "games");
+
 const AT_BAT_TYPES = ['single', 'double', 'triple', 'homerun', 'walk', 'hbp', 'strikeout', 'out'];
 
 const OUTCOME_LABELS = {
@@ -9,23 +29,12 @@ const OUTCOME_LABELS = {
 let players = [];
 let games = [];
 let currentGameId = null;
+let currentGameData = null;
+let unsubscribeGame = null;
 let setupState = null;
 
 const modalOverlay = document.getElementById('modalOverlay');
 const modalBox = document.getElementById('modalBox');
-
-function load() {
-  players = JSON.parse(localStorage.getItem('sb_players_v1') || '[]');
-  games = JSON.parse(localStorage.getItem('sb_games_v1') || '[]');
-}
-
-function savePlayers() {
-  localStorage.setItem('sb_players_v1', JSON.stringify(players));
-}
-
-function saveGames() {
-  localStorage.setItem('sb_games_v1', JSON.stringify(games));
-}
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -40,6 +49,12 @@ function escapeHtml(str) {
 function showView(id) {
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
   document.getElementById(id).classList.remove('hidden');
+  if (id !== 'view-game' && unsubscribeGame) {
+    unsubscribeGame();
+    unsubscribeGame = null;
+    currentGameId = null;
+    currentGameData = null;
+  }
 }
 
 function showModal() {
@@ -53,6 +68,30 @@ function closeModal() {
 
 modalOverlay.addEventListener('click', e => {
   if (e.target === modalOverlay) closeModal();
+});
+
+async function updateGameInTransaction(gameId, updater) {
+  const gameRef = doc(db, 'games', gameId);
+  await runTransaction(db, async tx => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) return;
+    const updates = updater(snap.data());
+    if (updates) tx.update(gameRef, updates);
+  });
+}
+
+// ---------- リアルタイム同期 ----------
+
+onSnapshot(playersCol, snap => {
+  players = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  if (!document.getElementById('view-players').classList.contains('hidden')) renderPlayers();
+  if (!document.getElementById('view-setup').classList.contains('hidden')) renderSetupPlayerSelect();
+});
+
+onSnapshot(gamesCol, snap => {
+  games = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  if (!document.getElementById('view-home').classList.contains('hidden')) renderHome();
+  if (!document.getElementById('view-aggregate').classList.contains('hidden')) renderAggregateList();
 });
 
 // ---------- ホーム画面 ----------
@@ -86,15 +125,13 @@ document.getElementById('btnAggregate').addEventListener('click', () => {
   showView('view-aggregate');
 });
 
-document.getElementById('gameList').addEventListener('click', e => {
+document.getElementById('gameList').addEventListener('click', async e => {
   if (e.target.classList.contains('openGameBtn')) {
     openGame(e.target.dataset.id);
   }
   if (e.target.classList.contains('deleteGameBtn')) {
     if (confirm('この試合を削除しますか？元に戻せません。')) {
-      games = games.filter(g => g.id !== e.target.dataset.id);
-      saveGames();
-      renderHome();
+      await deleteDoc(doc(db, 'games', e.target.dataset.id));
     }
   }
 });
@@ -125,37 +162,34 @@ function renderPlayers() {
   `).join('');
 }
 
-document.getElementById('addPlayerForm').addEventListener('submit', e => {
+document.getElementById('addPlayerForm').addEventListener('submit', async e => {
   e.preventDefault();
   const nameInput = document.getElementById('newPlayerName');
   const numberInput = document.getElementById('newPlayerNumber');
   const name = nameInput.value.trim();
   if (!name) return;
-  players.push({ id: uid(), name, number: numberInput.value.trim() });
-  savePlayers();
+  await addDoc(playersCol, { name, number: numberInput.value.trim() });
   nameInput.value = '';
   numberInput.value = '';
-  renderPlayers();
 });
 
-document.getElementById('playerList').addEventListener('click', e => {
+document.getElementById('playerList').addEventListener('click', async e => {
   if (e.target.classList.contains('deletePlayerBtn')) {
     const id = e.target.dataset.id;
     if (confirm('この選手をマスタから削除しますか？（過去の試合記録は残ります）')) {
-      players = players.filter(p => p.id !== id);
-      savePlayers();
-      renderPlayers();
+      await deleteDoc(doc(db, 'players', id));
     }
   }
 });
 
-document.getElementById('playerList').addEventListener('change', e => {
+document.getElementById('playerList').addEventListener('change', async e => {
   const id = e.target.dataset.id;
-  const p = players.find(pl => pl.id === id);
-  if (!p) return;
-  if (e.target.classList.contains('edit-name')) p.name = e.target.value.trim();
-  if (e.target.classList.contains('edit-number')) p.number = e.target.value.trim();
-  savePlayers();
+  if (e.target.classList.contains('edit-name')) {
+    await updateDoc(doc(db, 'players', id), { name: e.target.value.trim() });
+  }
+  if (e.target.classList.contains('edit-number')) {
+    await updateDoc(doc(db, 'players', id), { number: e.target.value.trim() });
+  }
 });
 
 // ---------- 試合セットアップ画面 ----------
@@ -226,35 +260,37 @@ document.getElementById('setupLineupList').addEventListener('click', e => {
   renderSetupLineup();
 });
 
-document.getElementById('btnStartGame').addEventListener('click', () => {
+document.getElementById('btnStartGame').addEventListener('click', async () => {
   const date = document.getElementById('setupDate').value || new Date().toISOString().slice(0, 10);
   const opponent = document.getElementById('setupOpponent').value.trim();
   if (setupState.lineup.length === 0) {
     alert('打順に選手を1人以上追加してください');
     return;
   }
-  const game = {
-    id: uid(),
+  const gameData = {
     date, opponent,
     lineup: setupState.lineup.map(l => ({ ...l })),
     participants: setupState.lineup.map(l => ({ playerId: l.playerId, playerName: l.playerName, playerNumber: l.playerNumber })),
     currentBatterIndex: 0,
     events: []
   };
-  games.push(game);
-  saveGames();
-  openGame(game.id);
+  const ref = await addDoc(gamesCol, gameData);
+  openGame(ref.id);
 });
 
 // ---------- 試合詳細・ライブ入力画面 ----------
 
 function getCurrentGame() {
-  return games.find(g => g.id === currentGameId);
+  return currentGameData;
 }
 
 function openGame(id) {
   currentGameId = id;
-  renderGame();
+  if (unsubscribeGame) unsubscribeGame();
+  unsubscribeGame = onSnapshot(doc(db, 'games', id), snap => {
+    currentGameData = snap.exists() ? { id: snap.id, ...snap.data() } : null;
+    renderGame();
+  });
   showView('view-game');
 }
 
@@ -302,17 +338,19 @@ function openSubstitutionModal(slotIdx) {
   }
   showModal();
   modalBox.querySelectorAll('.pickPlayerBtn').forEach(btn => {
-    btn.addEventListener('click', () => {
+    btn.addEventListener('click', async () => {
       const p = players.find(pl => pl.id === btn.dataset.id);
-      game.lineup[slotIdx].playerId = p.id;
-      game.lineup[slotIdx].playerName = p.name;
-      game.lineup[slotIdx].playerNumber = p.number;
-      if (!game.participants.some(pp => pp.playerId === p.id)) {
-        game.participants.push({ playerId: p.id, playerName: p.name, playerNumber: p.number });
-      }
-      saveGames();
       closeModal();
-      renderGame();
+      await updateGameInTransaction(currentGameId, data => {
+        const lineup = data.lineup.map((l, i) => i === slotIdx
+          ? { slot: l.slot, playerId: p.id, playerName: p.name, playerNumber: p.number }
+          : l);
+        let participants = data.participants || [];
+        if (!participants.some(pp => pp.playerId === p.id)) {
+          participants = [...participants, { playerId: p.id, playerName: p.name, playerNumber: p.number }];
+        }
+        return { lineup, participants };
+      });
     });
   });
   document.getElementById('modalCancel').addEventListener('click', closeModal);
@@ -321,34 +359,36 @@ function openSubstitutionModal(slotIdx) {
 document.getElementById('outcomeButtons').addEventListener('click', e => {
   const type = e.target.dataset.type;
   if (!type) return;
-  const game = getCurrentGame();
-  const batter = game.lineup[game.currentBatterIndex];
-  openRbiModal(type, batter);
+  openRbiModal(type);
 });
 
-function openRbiModal(type, batter) {
+function openRbiModal(type) {
+  const game = getCurrentGame();
+  const batter = game.lineup[game.currentBatterIndex];
   modalBox.innerHTML = `<h3>${escapeHtml(batter.playerName)} - ${OUTCOME_LABELS[type]}</h3><p>打点は？</p>` +
     [0, 1, 2, 3, 4].map(n => `<button class="btn btn-block rbiBtn" data-n="${n}">${n}点</button>`).join('') +
     `<button class="btn btn-block" id="modalCancel">キャンセル</button>`;
   showModal();
   modalBox.querySelectorAll('.rbiBtn').forEach(btn => {
     btn.addEventListener('click', () => {
-      finalizeAtBat(type, Number(btn.dataset.n), batter);
+      const rbi = Number(btn.dataset.n);
       closeModal();
+      finalizeAtBat(type, rbi);
     });
   });
   document.getElementById('modalCancel').addEventListener('click', closeModal);
 }
 
-function finalizeAtBat(type, rbi, batter) {
-  const game = getCurrentGame();
-  game.events.push({
-    id: uid(), playerId: batter.playerId, playerName: batter.playerName, playerNumber: batter.playerNumber,
-    type, rbi, ts: Date.now()
+async function finalizeAtBat(type, rbi) {
+  await updateGameInTransaction(currentGameId, data => {
+    const batter = data.lineup[data.currentBatterIndex];
+    const events = [...(data.events || []), {
+      id: uid(), playerId: batter.playerId, playerName: batter.playerName, playerNumber: batter.playerNumber,
+      type, rbi, ts: Date.now()
+    }];
+    const currentBatterIndex = (data.currentBatterIndex + 1) % data.lineup.length;
+    return { events, currentBatterIndex };
   });
-  game.currentBatterIndex = (game.currentBatterIndex + 1) % game.lineup.length;
-  saveGames();
-  renderGame();
 }
 
 document.getElementById('btnSteal').addEventListener('click', () => openParticipantPicker('steal'));
@@ -363,84 +403,101 @@ function openParticipantPicker(type) {
   modalBox.querySelectorAll('.pickPlayerBtn').forEach(btn => {
     btn.addEventListener('click', () => {
       const p = game.participants.find(pp => pp.playerId === btn.dataset.id);
-      game.events.push({ id: uid(), playerId: p.playerId, playerName: p.playerName, playerNumber: p.playerNumber, type, rbi: null, ts: Date.now() });
-      saveGames();
       closeModal();
-      renderGame();
+      recordParticipantEvent(type, p);
     });
   });
   document.getElementById('modalCancel').addEventListener('click', closeModal);
 }
 
-document.getElementById('btnUndo').addEventListener('click', () => {
+async function recordParticipantEvent(type, participant) {
+  await updateGameInTransaction(currentGameId, data => {
+    const events = [...(data.events || []), {
+      id: uid(), playerId: participant.playerId, playerName: participant.playerName, playerNumber: participant.playerNumber,
+      type, rbi: null, ts: Date.now()
+    }];
+    return { events };
+  });
+}
+
+document.getElementById('btnUndo').addEventListener('click', async () => {
   const game = getCurrentGame();
-  if (game.events.length === 0) return;
+  if (!game.events || game.events.length === 0) return;
   const last = game.events[game.events.length - 1];
   if (!confirm(`直前の記録（${last.playerName} - ${OUTCOME_LABELS[last.type]}）を取り消しますか？`)) return;
-  game.events.pop();
-  if (AT_BAT_TYPES.includes(last.type)) {
-    game.currentBatterIndex = (game.currentBatterIndex - 1 + game.lineup.length) % game.lineup.length;
-  }
-  saveGames();
-  renderGame();
+  await updateGameInTransaction(currentGameId, data => {
+    const events = [...(data.events || [])];
+    if (events.length === 0) return null;
+    const removed = events.pop();
+    let currentBatterIndex = data.currentBatterIndex;
+    if (AT_BAT_TYPES.includes(removed.type)) {
+      currentBatterIndex = (currentBatterIndex - 1 + data.lineup.length) % data.lineup.length;
+    }
+    return { events, currentBatterIndex };
+  });
 });
 
 function renderEventLog(game) {
   const el = document.getElementById('eventLog');
-  if (game.events.length === 0) {
+  const events = game.events || [];
+  if (events.length === 0) {
     el.innerHTML = '<p class="empty">記録がありません</p>';
     return;
   }
-  const rows = game.events.map((ev, idx) => ({ ev, idx })).reverse();
-  el.innerHTML = rows.map(({ ev, idx }) => `
+  const rows = [...events].reverse();
+  el.innerHTML = rows.map(ev => `
     <div class="list-row">
       <div class="list-row-main">
         ${escapeHtml(ev.playerName)} -
-        <select class="editTypeSelect" data-idx="${idx}">
+        <select class="editTypeSelect" data-id="${ev.id}">
           ${Object.keys(OUTCOME_LABELS).map(k => `<option value="${k}" ${k === ev.type ? 'selected' : ''}>${OUTCOME_LABELS[k]}</option>`).join('')}
         </select>
-        ${AT_BAT_TYPES.includes(ev.type) ? `<input type="number" class="editRbiInput" data-idx="${idx}" min="0" max="4" value="${ev.rbi ?? 0}">打点` : ''}
+        ${AT_BAT_TYPES.includes(ev.type) ? `<input type="number" class="editRbiInput" data-id="${ev.id}" min="0" max="4" value="${ev.rbi ?? 0}">打点` : ''}
       </div>
-      <button class="btn btn-small btn-danger deleteEventBtn" data-idx="${idx}">削除</button>
+      <button class="btn btn-small btn-danger deleteEventBtn" data-id="${ev.id}">削除</button>
     </div>
   `).join('');
 }
 
-document.getElementById('eventLog').addEventListener('change', e => {
-  const idx = Number(e.target.dataset.idx);
-  const game = getCurrentGame();
-  const ev = game.events[idx];
-  if (!ev) return;
+document.getElementById('eventLog').addEventListener('change', async e => {
+  const id = e.target.dataset.id;
+  if (!id) return;
   if (e.target.classList.contains('editTypeSelect')) {
-    const nowAtBat = AT_BAT_TYPES.includes(e.target.value);
-    ev.type = e.target.value;
-    ev.rbi = nowAtBat ? (ev.rbi ?? 0) : null;
-    saveGames();
-    renderGame();
+    const newType = e.target.value;
+    await updateGameInTransaction(currentGameId, data => {
+      const events = (data.events || []).map(ev => {
+        if (ev.id !== id) return ev;
+        const nowAtBat = AT_BAT_TYPES.includes(newType);
+        return { ...ev, type: newType, rbi: nowAtBat ? (ev.rbi ?? 0) : null };
+      });
+      return { events };
+    });
   }
   if (e.target.classList.contains('editRbiInput')) {
-    ev.rbi = Number(e.target.value);
-    saveGames();
+    const rbi = Number(e.target.value);
+    await updateGameInTransaction(currentGameId, data => {
+      const events = (data.events || []).map(ev => ev.id === id ? { ...ev, rbi } : ev);
+      return { events };
+    });
   }
 });
 
-document.getElementById('eventLog').addEventListener('click', e => {
+document.getElementById('eventLog').addEventListener('click', async e => {
   if (e.target.classList.contains('deleteEventBtn')) {
-    const idx = Number(e.target.dataset.idx);
-    const game = getCurrentGame();
+    const id = e.target.dataset.id;
     if (!confirm('この記録を削除しますか？')) return;
-    game.events.splice(idx, 1);
-    saveGames();
-    renderGame();
+    await updateGameInTransaction(currentGameId, data => {
+      const events = (data.events || []).filter(ev => ev.id !== id);
+      return { events };
+    });
   }
 });
 
-document.getElementById('btnDeleteGame').addEventListener('click', () => {
+document.getElementById('btnDeleteGame').addEventListener('click', async () => {
   if (!confirm('この試合を削除しますか？元に戻せません。')) return;
-  games = games.filter(g => g.id !== currentGameId);
-  saveGames();
+  const gameId = currentGameId;
   showView('view-home');
-  renderHome();
+  await deleteDoc(doc(db, 'games', gameId));
 });
 
 // ---------- 集計・CSV出力画面 ----------
@@ -483,10 +540,10 @@ function buildCsv(selectedGames) {
   }
 
   selectedGames.forEach(game => {
-    game.participants.forEach(p => {
+    (game.participants || []).forEach(p => {
       ensure(p.playerId, p.playerName, p.playerNumber).games++;
     });
-    game.events.forEach(ev => {
+    (game.events || []).forEach(ev => {
       const s = ensure(ev.playerId, ev.playerName, ev.playerNumber);
       switch (ev.type) {
         case 'single': s.pa++; s.single++; s.rbi += ev.rbi || 0; break;
@@ -541,6 +598,4 @@ function downloadCsv(csvString) {
 
 // ---------- 初期化 ----------
 
-load();
-renderHome();
 showView('view-home');
