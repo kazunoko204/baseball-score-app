@@ -218,11 +218,12 @@ function renderSetupPlayerSelect() {
 
 document.getElementById('btnAddLineup').addEventListener('click', () => {
   const sel = document.getElementById('setupPlayerSelect');
+  const posSel = document.getElementById('setupPositionSelect');
   const pid = sel.value;
   if (!pid) return;
   const p = players.find(pl => pl.id === pid);
   if (!p) return;
-  setupState.lineup.push({ slot: setupState.lineup.length + 1, playerId: p.id, playerName: p.name, playerNumber: p.number });
+  setupState.lineup.push({ slot: setupState.lineup.length + 1, playerId: p.id, playerName: p.name, playerNumber: p.number, position: posSel.value });
   renderSetupPlayerSelect();
   renderSetupLineup();
 });
@@ -235,7 +236,7 @@ function renderSetupLineup() {
   }
   list.innerHTML = setupState.lineup.map((l, idx) => `
     <div class="list-row">
-      <div class="list-row-main">${l.slot}番 ${escapeHtml(l.playerName)}${l.playerNumber ? (' #' + escapeHtml(l.playerNumber)) : ''}</div>
+      <div class="list-row-main">${l.slot}番 ${escapeHtml(l.playerName)}${l.playerNumber ? (' #' + escapeHtml(l.playerNumber)) : ''} (${escapeHtml(l.position || '')})</div>
       <button class="btn btn-small moveUpBtn" data-idx="${idx}" ${idx === 0 ? 'disabled' : ''}>↑</button>
       <button class="btn btn-small moveDownBtn" data-idx="${idx}" ${idx === setupState.lineup.length - 1 ? 'disabled' : ''}>↓</button>
       <button class="btn btn-small btn-danger removeLineupBtn" data-idx="${idx}">削除</button>
@@ -313,7 +314,7 @@ function renderLineupDisplay(game) {
   const el = document.getElementById('lineupDisplay');
   el.innerHTML = game.lineup.map((l, idx) => `
     <div class="list-row ${idx === game.currentBatterIndex ? 'current-batter-row' : ''}">
-      <div class="list-row-main">${l.slot}番 ${escapeHtml(l.playerName)}${l.playerNumber ? (' #' + escapeHtml(l.playerNumber)) : ''}</div>
+      <div class="list-row-main">${l.slot}番 ${escapeHtml(l.playerName)}${l.playerNumber ? (' #' + escapeHtml(l.playerNumber)) : ''} (${escapeHtml(l.position || '')})</div>
       <button class="btn btn-small subBtn" data-idx="${idx}">交代</button>
     </div>
   `).join('');
@@ -343,7 +344,7 @@ function openSubstitutionModal(slotIdx) {
       closeModal();
       await updateGameInTransaction(currentGameId, data => {
         const lineup = data.lineup.map((l, i) => i === slotIdx
-          ? { slot: l.slot, playerId: p.id, playerName: p.name, playerNumber: p.number }
+          ? { slot: l.slot, playerId: p.id, playerName: p.name, playerNumber: p.number, position: l.position }
           : l);
         let participants = data.participants || [];
         if (!participants.some(pp => pp.playerId === p.id)) {
