@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
 import {
-  getFirestore, collection, doc, addDoc, updateDoc, deleteDoc,
+  getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, setDoc,
   onSnapshot, runTransaction
 } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
 
@@ -17,6 +17,9 @@ const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 const playersCol = collection(db, "players");
 const gamesCol = collection(db, "games");
+const uniformsCol = collection(db, "uniforms");
+
+const UNIFORM_SIZES = ['S', 'M', 'L', 'O', 'XO'];
 
 const AT_BAT_TYPES = ['single', 'double', 'triple', 'homerun', 'walk', 'hbp', 'strikeout', 'out'];
 
@@ -28,6 +31,7 @@ const OUTCOME_LABELS = {
 
 let players = [];
 let games = [];
+let uniforms = [];
 let currentGameId = null;
 let currentGameData = null;
 let unsubscribeGame = null;
@@ -86,6 +90,12 @@ onSnapshot(playersCol, snap => {
   players = snap.docs.map(d => ({ id: d.id, ...d.data() }));
   if (!document.getElementById('view-players').classList.contains('hidden')) renderPlayers();
   if (!document.getElementById('view-setup').classList.contains('hidden')) renderSetupPlayerSelect();
+  if (!document.getElementById('view-uniforms').classList.contains('hidden')) renderUniforms();
+});
+
+onSnapshot(uniformsCol, snap => {
+  uniforms = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  if (!document.getElementById('view-uniforms').classList.contains('hidden')) renderUniforms();
 });
 
 onSnapshot(gamesCol, snap => {
@@ -155,7 +165,7 @@ function renderPlayers() {
     <div class="list-row">
       <div class="list-row-main">
         <input type="text" class="edit-name" data-id="${p.id}" value="${escapeHtml(p.name)}">
-        <input type="text" class="edit-number" data-id="${p.id}" value="${escapeHtml(p.number || '')}" placeholder="背番号" style="max-width:5em;">
+        <span class="player-number-display">背番号: ${escapeHtml(p.number || '未設定')}</span>
       </div>
       <button class="btn btn-small btn-danger deletePlayerBtn" data-id="${p.id}">削除</button>
     </div>
@@ -165,12 +175,10 @@ function renderPlayers() {
 document.getElementById('addPlayerForm').addEventListener('submit', async e => {
   e.preventDefault();
   const nameInput = document.getElementById('newPlayerName');
-  const numberInput = document.getElementById('newPlayerNumber');
   const name = nameInput.value.trim();
   if (!name) return;
-  await addDoc(playersCol, { name, number: numberInput.value.trim() });
+  await addDoc(playersCol, { name, number: '' });
   nameInput.value = '';
-  numberInput.value = '';
 });
 
 document.getElementById('playerList').addEventListener('click', async e => {
@@ -187,8 +195,72 @@ document.getElementById('playerList').addEventListener('change', async e => {
   if (e.target.classList.contains('edit-name')) {
     await updateDoc(doc(db, 'players', id), { name: e.target.value.trim() });
   }
-  if (e.target.classList.contains('edit-number')) {
-    await updateDoc(doc(db, 'players', id), { number: e.target.value.trim() });
+});
+
+// ---------- ユニフォーム管理画面 ----------
+
+document.getElementById('btnUniforms').addEventListener('click', () => {
+  renderUniforms();
+  showView('view-uniforms');
+});
+
+function renderUniforms() {
+  const list = document.getElementById('uniformList');
+  if (players.length === 0) {
+    list.innerHTML = '<p class="empty">選手が登録されていません</p>';
+    return;
+  }
+  const sizeOptions = (selected) => UNIFORM_SIZES.map(s =>
+    `<option value="${s}" ${s === selected ? 'selected' : ''}>${s}</option>`
+  ).join('');
+  list.innerHTML = players.map(p => {
+    const u = uniforms.find(x => x.id === p.id) || {};
+    const cap = u.cap || 'なし';
+    return `
+    <div class="list-row uniform-row" data-id="${p.id}">
+      <div class="list-row-main">
+        <strong>${escapeHtml(p.name)}</strong>
+        <label>帽子
+          <select class="uni-cap" data-id="${p.id}">
+            <option value="なし" ${cap === 'なし' ? 'selected' : ''}>なし</option>
+            <option value="あり" ${cap === 'あり' ? 'selected' : ''}>あり</option>
+          </select>
+        </label>
+        <label>上
+          <select class="uni-top" data-id="${p.id}">
+            <option value="">未設定</option>
+            ${sizeOptions(u.top)}
+          </select>
+        </label>
+        <label>背番号
+          <input type="text" class="uni-number" data-id="${p.id}" inputmode="numeric" maxlength="2" value="${escapeHtml(u.number || '')}" style="max-width:4em;">
+        </label>
+        <label>下
+          <select class="uni-bottom" data-id="${p.id}">
+            <option value="">未設定</option>
+            ${sizeOptions(u.bottom)}
+          </select>
+        </label>
+      </div>
+    </div>
+  `;
+  }).join('');
+}
+
+document.getElementById('uniformList').addEventListener('change', async e => {
+  const id = e.target.dataset.id;
+  if (!id) return;
+  if (e.target.classList.contains('uni-cap')) {
+    await setDoc(doc(db, 'uniforms', id), { cap: e.target.value }, { merge: true });
+  } else if (e.target.classList.contains('uni-top')) {
+    await setDoc(doc(db, 'uniforms', id), { top: e.target.value }, { merge: true });
+  } else if (e.target.classList.contains('uni-bottom')) {
+    await setDoc(doc(db, 'uniforms', id), { bottom: e.target.value }, { merge: true });
+  } else if (e.target.classList.contains('uni-number')) {
+    const number = e.target.value.replace(/[^0-9]/g, '').slice(0, 2);
+    e.target.value = number;
+    await setDoc(doc(db, 'uniforms', id), { number }, { merge: true });
+    await updateDoc(doc(db, 'players', id), { number });
   }
 });
 

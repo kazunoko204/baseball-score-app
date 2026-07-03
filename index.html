@@ -18,6 +18,7 @@
     <div class="btn-row">
       <button class="btn btn-primary" id="btnNewGame">新しい試合を開始</button>
       <button class="btn" id="btnPlayers">選手管理</button>
+      <button class="btn" id="btnUniforms">ユニフォーム管理</button>
       <button class="btn" id="btnAggregate">集計してCSV出力</button>
     </div>
     <h2>試合一覧</h2>
@@ -30,10 +31,16 @@
     <h2>選手管理</h2>
     <form id="addPlayerForm" class="inline-form">
       <input type="text" id="newPlayerName" placeholder="選手名" required>
-      <input type="text" id="newPlayerNumber" placeholder="背番号">
       <button type="submit" class="btn btn-primary">追加</button>
     </form>
     <div id="playerList"></div>
+  </section>
+
+  <!-- ユニフォーム管理画面 -->
+  <section id="view-uniforms" class="view hidden">
+    <button class="btn btn-back" data-back="view-home">← 戻る</button>
+    <h2>ユニフォーム管理</h2>
+    <div id="uniformList"></div>
   </section>
 
   <!-- 試合セットアップ画面 -->
