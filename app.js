@@ -18,6 +18,7 @@ const db = getFirestore(firebaseApp);
 const playersCol = collection(db, "players");
 const gamesCol = collection(db, "games");
 const uniformsCol = collection(db, "uniforms");
+const setupDraftRef = doc(db, "setup", "current");
 
 const UNIFORM_SIZES = ['S', 'M', 'L', 'O', 'XO'];
 
@@ -35,7 +36,8 @@ let uniforms = [];
 let currentGameId = null;
 let currentGameData = null;
 let unsubscribeGame = null;
-let setupState = null;
+let setupData = null;
+let unsubscribeSetup = null;
 
 const modalOverlay = document.getElementById('modalOverlay');
 const modalBox = document.getElementById('modalBox');
@@ -58,6 +60,11 @@ function showView(id) {
     unsubscribeGame = null;
     currentGameId = null;
     currentGameData = null;
+  }
+  if (id !== 'view-setup' && unsubscribeSetup) {
+    unsubscribeSetup();
+    unsubscribeSetup = null;
+    setupData = null;
   }
 }
 
@@ -266,18 +273,40 @@ document.getElementById('uniformList').addEventListener('change', async e => {
 
 // ---------- 試合セットアップ画面 ----------
 
+function defaultSetupData() {
+  return { date: new Date().toISOString().slice(0, 10), opponent: '', lineup: [] };
+}
+
 function openSetup() {
-  setupState = { lineup: [] };
-  document.getElementById('setupDate').value = new Date().toISOString().slice(0, 10);
-  document.getElementById('setupOpponent').value = '';
-  renderSetupPlayerSelect();
-  renderSetupLineup();
+  if (unsubscribeSetup) unsubscribeSetup();
+  unsubscribeSetup = onSnapshot(setupDraftRef, snap => {
+    setupData = snap.exists() ? snap.data() : defaultSetupData();
+    renderSetupFields();
+    renderSetupPlayerSelect();
+    renderSetupLineup();
+  });
   showView('view-setup');
 }
 
+function renderSetupFields() {
+  const dateEl = document.getElementById('setupDate');
+  const oppEl = document.getElementById('setupOpponent');
+  if (document.activeElement !== dateEl) dateEl.value = setupData.date || new Date().toISOString().slice(0, 10);
+  if (document.activeElement !== oppEl) oppEl.value = setupData.opponent || '';
+}
+
+document.getElementById('setupDate').addEventListener('change', e => {
+  setDoc(setupDraftRef, { date: e.target.value }, { merge: true });
+});
+
+document.getElementById('setupOpponent').addEventListener('change', e => {
+  setDoc(setupDraftRef, { opponent: e.target.value.trim() }, { merge: true });
+});
+
 function renderSetupPlayerSelect() {
   const sel = document.getElementById('setupPlayerSelect');
-  const inLineupIds = new Set(setupState.lineup.map(l => l.playerId));
+  const lineup = (setupData && setupData.lineup) || [];
+  const inLineupIds = new Set(lineup.map(l => l.playerId));
   const available = players.filter(p => !inLineupIds.has(p.id));
   if (available.length === 0) {
     sel.innerHTML = '<option value="">(追加できる選手がいません)</option>';
@@ -288,6 +317,17 @@ function renderSetupPlayerSelect() {
   ).join('');
 }
 
+async function addToSetupLineup(player, position) {
+  await runTransaction(db, async tx => {
+    const snap = await tx.get(setupDraftRef);
+    const data = snap.exists() ? snap.data() : defaultSetupData();
+    const lineup = [...(data.lineup || []), {
+      slot: (data.lineup || []).length + 1, playerId: player.id, playerName: player.name, playerNumber: player.number, position
+    }];
+    tx.set(setupDraftRef, { ...data, lineup });
+  });
+}
+
 document.getElementById('btnAddLineup').addEventListener('click', () => {
   const sel = document.getElementById('setupPlayerSelect');
   const posSel = document.getElementById('setupPositionSelect');
@@ -295,59 +335,81 @@ document.getElementById('btnAddLineup').addEventListener('click', () => {
   if (!pid) return;
   const p = players.find(pl => pl.id === pid);
   if (!p) return;
-  setupState.lineup.push({ slot: setupState.lineup.length + 1, playerId: p.id, playerName: p.name, playerNumber: p.number, position: posSel.value });
-  renderSetupPlayerSelect();
-  renderSetupLineup();
+  addToSetupLineup(p, posSel.value);
 });
 
 function renderSetupLineup() {
   const list = document.getElementById('setupLineupList');
-  if (setupState.lineup.length === 0) {
+  const lineup = (setupData && setupData.lineup) || [];
+  if (lineup.length === 0) {
     list.innerHTML = '<p class="empty">打順に選手を追加してください</p>';
     return;
   }
-  list.innerHTML = setupState.lineup.map((l, idx) => `
+  list.innerHTML = lineup.map((l, idx) => `
     <div class="list-row">
       <div class="list-row-main">${l.slot}番 ${escapeHtml(l.playerName)}${l.playerNumber ? (' #' + escapeHtml(l.playerNumber)) : ''} (${escapeHtml(l.position || '')})</div>
       <button class="btn btn-small moveUpBtn" data-idx="${idx}" ${idx === 0 ? 'disabled' : ''}>↑</button>
-      <button class="btn btn-small moveDownBtn" data-idx="${idx}" ${idx === setupState.lineup.length - 1 ? 'disabled' : ''}>↓</button>
+      <button class="btn btn-small moveDownBtn" data-idx="${idx}" ${idx === lineup.length - 1 ? 'disabled' : ''}>↓</button>
       <button class="btn btn-small btn-danger removeLineupBtn" data-idx="${idx}">削除</button>
     </div>
   `).join('');
+}
+
+async function removeFromSetupLineup(idx) {
+  await runTransaction(db, async tx => {
+    const snap = await tx.get(setupDraftRef);
+    if (!snap.exists()) return;
+    const data = snap.data();
+    const lineup = [...(data.lineup || [])];
+    lineup.splice(idx, 1);
+    lineup.forEach((l, i) => l.slot = i + 1);
+    tx.set(setupDraftRef, { ...data, lineup });
+  });
+}
+
+async function moveSetupLineup(idx, dir) {
+  await runTransaction(db, async tx => {
+    const snap = await tx.get(setupDraftRef);
+    if (!snap.exists()) return;
+    const data = snap.data();
+    const lineup = [...(data.lineup || [])];
+    const j = idx + dir;
+    if (j < 0 || j >= lineup.length) return;
+    [lineup[idx], lineup[j]] = [lineup[j], lineup[idx]];
+    lineup.forEach((l, i) => l.slot = i + 1);
+    tx.set(setupDraftRef, { ...data, lineup });
+  });
 }
 
 document.getElementById('setupLineupList').addEventListener('click', e => {
   const idx = Number(e.target.dataset.idx);
   if (Number.isNaN(idx)) return;
   if (e.target.classList.contains('removeLineupBtn')) {
-    setupState.lineup.splice(idx, 1);
-  } else if (e.target.classList.contains('moveUpBtn') && idx > 0) {
-    [setupState.lineup[idx - 1], setupState.lineup[idx]] = [setupState.lineup[idx], setupState.lineup[idx - 1]];
-  } else if (e.target.classList.contains('moveDownBtn') && idx < setupState.lineup.length - 1) {
-    [setupState.lineup[idx + 1], setupState.lineup[idx]] = [setupState.lineup[idx], setupState.lineup[idx + 1]];
-  } else {
-    return;
+    removeFromSetupLineup(idx);
+  } else if (e.target.classList.contains('moveUpBtn')) {
+    moveSetupLineup(idx, -1);
+  } else if (e.target.classList.contains('moveDownBtn')) {
+    moveSetupLineup(idx, 1);
   }
-  setupState.lineup.forEach((l, i) => l.slot = i + 1);
-  renderSetupPlayerSelect();
-  renderSetupLineup();
 });
 
 document.getElementById('btnStartGame').addEventListener('click', async () => {
-  const date = document.getElementById('setupDate').value || new Date().toISOString().slice(0, 10);
-  const opponent = document.getElementById('setupOpponent').value.trim();
-  if (setupState.lineup.length === 0) {
+  const lineup = (setupData && setupData.lineup) || [];
+  if (lineup.length === 0) {
     alert('打順に選手を1人以上追加してください');
     return;
   }
+  const date = (setupData && setupData.date) || new Date().toISOString().slice(0, 10);
+  const opponent = (setupData && setupData.opponent) || '';
   const gameData = {
     date, opponent,
-    lineup: setupState.lineup.map(l => ({ ...l })),
-    participants: setupState.lineup.map(l => ({ playerId: l.playerId, playerName: l.playerName, playerNumber: l.playerNumber })),
+    lineup: lineup.map(l => ({ ...l })),
+    participants: lineup.map(l => ({ playerId: l.playerId, playerName: l.playerName, playerNumber: l.playerNumber })),
     currentBatterIndex: 0,
     events: []
   };
   const ref = await addDoc(gamesCol, gameData);
+  await deleteDoc(setupDraftRef);
   openGame(ref.id);
 });
 
